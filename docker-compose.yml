@@ -1,0 +1,146 @@
+version: '3.8'
+
+services:
+  orders:
+    build:
+      context: .
+      dockerfile: ./apps/orders/Dockerfile
+      target: development
+    command: npm run dev orders
+    env_file:
+      - ./apps/orders/.env
+    depends_on:
+      - mongodb-primary
+      - mongodb-secondary
+      - mongodb-arbiter
+      - rabbitmq
+      - billing
+      - auth
+    volumes:
+      - .:/usr/src/app
+      - /usr/src/app/node_modules
+    ports:
+      - '3000:3000'
+    networks:
+      - app_network
+
+  billing:
+    build:
+      context: .
+      dockerfile: ./apps/billing/Dockerfile
+      target: development
+    command: npm run dev billing
+    env_file:
+      - ./apps/billing/.env
+    depends_on:
+      - mongodb-primary
+      - mongodb-secondary
+      - mongodb-arbiter
+      - rabbitmq
+      - auth
+    volumes:
+      - .:/usr/src/app
+      - /usr/src/app/node_modules
+    networks:
+      - app_network
+
+  auth:
+    build:
+      context: .
+      dockerfile: ./apps/auth/Dockerfile
+      target: development
+    command: npm run dev auth
+    env_file:
+      - ./apps/auth/.env
+    depends_on:
+      - mongodb-primary
+      - mongodb-secondary
+      - mongodb-arbiter
+      - rabbitmq
+    ports:
+      - '3001:3001'
+    volumes:
+      - .:/usr/src/app
+      - /usr/src/app/node_modules
+    networks:
+      - app_network
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - '5672:5672'
+      - '15672:15672' # Cổng cho RabbitMQ Management UI
+    networks:
+      - app_network
+
+  mongodb-primary:
+    image: docker.io/bitnami/mongodb:5.0
+    environment:
+      - MONGODB_ADVERTISED_HOSTNAME=mongodb-primary
+      - MONGODB_REPLICA_SET_MODE=primary
+      - MONGODB_ROOT_PASSWORD=password123
+      - MONGODB_REPLICA_SET_KEY=replicasetkey123
+    volumes:
+      - 'mongodb_master_data:/bitnami/mongodb'
+    ports:
+      - '27017:27017'
+    networks:
+      - app_network
+
+  mongodb-secondary:
+    image: docker.io/bitnami/mongodb:5.0
+    depends_on:
+      - mongodb-primary
+    environment:
+      - MONGODB_ADVERTISED_HOSTNAME= localhost
+      - MONGODB_REPLICA_SET_MODE=secondary
+      - MONGODB_INITIAL_PRIMARY_HOST=mongodb-primary
+      - MONGODB_INITIAL_PRIMARY_ROOT_PASSWORD=password123
+      - MONGODB_REPLICA_SET_KEY=replicasetkey123
+    volumes:
+      - 'mongodb_secondary_data:/bitnami/mongodb'
+    networks:
+      - app_network
+
+  mongodb-arbiter:
+    image: docker.io/bitnami/mongodb:5.0
+    depends_on:
+      - mongodb-primary
+    environment:
+      - MONGODB_ADVERTISED_HOSTNAME=mongodb-arbiter
+      - MONGODB_REPLICA_SET_MODE=arbiter
+      - MONGODB_INITIAL_PRIMARY_HOST=mongodb-primary
+      - MONGODB_INITIAL_PRIMARY_ROOT_PASSWORD=password123
+      - MONGODB_REPLICA_SET_KEY=replicasetkey123
+    volumes:
+      - 'mongodb_arbiter_data:/bitnami/mongodb'
+    networks:
+      - app_network
+
+  mongo-express:
+    image: mongo-express
+    environment:
+      - ME_CONFIG_MONGODB_SERVER=mongodb-primary
+      - ME_CONFIG_MONGODB_ADMINUSERNAME=root
+      - ME_CONFIG_MONGODB_ADMINPASSWORD=password123
+      - ME_CONFIG_MONGODB_AUTH_DATABASE=admin
+      - ME_CONFIG_BASICAUTH_USERNAME=root
+      - ME_CONFIG_BASICAUTH_PASSWORD=password123
+    ports:
+      - '8087:8081' # Mongo Express UI accessible at localhost:8081
+    networks:
+      - app_network
+    depends_on:
+      - mongodb-primary
+
+volumes:
+  mongodb_master_data:
+    driver: local
+  mongodb_secondary_data:
+    driver: local
+  mongodb_arbiter_data:
+    driver: local
+
+networks:
+  app_network:
+    driver: bridge
